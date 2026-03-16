@@ -330,6 +330,23 @@ body {
   opacity: 0.8;
 }
 
+.summary-categories {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.summary-cat-count {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.no-data {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
 /* Chart card */
 .chart-card {
   background: var(--surface);

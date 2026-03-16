@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   PieChart,
   Pie,
@@ -20,6 +20,12 @@ interface Period {
   quarter?: number // 1–4, only for mode='quarter'
 }
 
+interface RawRow {
+  'Reporting Date': number  // Unix timestamp (seconds)
+  'DR_ACC_L1.5': string
+  'Amount': number
+}
+
 interface ExpenseItem {
   category: string
   amount: number
@@ -38,19 +44,40 @@ const MONTHS = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ]
 
-const MOCK_DATA: ExpenseItem[] = [
-  { category: 'COGS', amount: 27226241 },
-  { category: 'R&D', amount: 12453890 },
-  { category: 'Sales & Marketing', amount: 9876543 },
-  { category: 'G&A', amount: 5432100 },
-  { category: 'Depreciation', amount: 2134567 },
-  { category: 'Interest', amount: 987654 },
+const EXCLUDED_CATEGORIES = new Set(['revenues', '0', 'ignore'])
+
+// Years from 2022 (data start) to 2025 (Actuals end ~early 2025)
+const CURRENT_YEAR = 2025
+const YEARS = [2025, 2024, 2023, 2022]
+
+const MOCK_RAW: RawRow[] = [
+  // Q1 2025 mock data (timestamps for end-of-month)
+  { 'Reporting Date': 1738281600, 'DR_ACC_L1.5': 'COGS', 'Amount': 9500000 },
+  { 'Reporting Date': 1738281600, 'DR_ACC_L1.5': 'R&amp;D', 'Amount': 4200000 },
+  { 'Reporting Date': 1738281600, 'DR_ACC_L1.5': 'S&amp;M', 'Amount': 3100000 },
+  { 'Reporting Date': 1738281600, 'DR_ACC_L1.5': 'G&amp;A', 'Amount': 1800000 },
+  { 'Reporting Date': 1738281600, 'DR_ACC_L1.5': 'Finance expenses', 'Amount': 680000 },
+  { 'Reporting Date': 1738281600, 'DR_ACC_L1.5': 'Revenues', 'Amount': 15000000 },
+  { 'Reporting Date': 1740960000, 'DR_ACC_L1.5': 'COGS', 'Amount': 9800000 },
+  { 'Reporting Date': 1740960000, 'DR_ACC_L1.5': 'R&amp;D', 'Amount': 4400000 },
+  { 'Reporting Date': 1740960000, 'DR_ACC_L1.5': 'S&amp;M', 'Amount': 3300000 },
+  { 'Reporting Date': 1740960000, 'DR_ACC_L1.5': 'G&amp;A', 'Amount': 1900000 },
+  { 'Reporting Date': 1740960000, 'DR_ACC_L1.5': 'Finance expenses', 'Amount': 720000 },
+  { 'Reporting Date': 1740960000, 'DR_ACC_L1.5': 'Revenues', 'Amount': 16000000 },
+  { 'Reporting Date': 1743465600, 'DR_ACC_L1.5': 'COGS', 'Amount': 10100000 },
+  { 'Reporting Date': 1743465600, 'DR_ACC_L1.5': 'R&amp;D', 'Amount': 4600000 },
+  { 'Reporting Date': 1743465600, 'DR_ACC_L1.5': 'S&amp;M', 'Amount': 3500000 },
+  { 'Reporting Date': 1743465600, 'DR_ACC_L1.5': 'G&amp;A', 'Amount': 2000000 },
+  { 'Reporting Date': 1743465600, 'DR_ACC_L1.5': 'Finance expenses', 'Amount': 750000 },
+  { 'Reporting Date': 1743465600, 'DR_ACC_L1.5': 'Revenues', 'Amount': 17000000 },
 ]
 
-const CURRENT_YEAR = 2025
-const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i)
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Decode HTML entities like &amp;, &amp;amp; etc. */
+function decodeHtml(s: string): string {
+  return new DOMParser().parseFromString(s, 'text/html').documentElement.textContent ?? s
+}
 
 function periodLabel(p: Period): string {
   if (p.mode === 'month') {
@@ -62,31 +89,47 @@ function periodLabel(p: Period): string {
   return `${p.year}`
 }
 
-function periodToDateFilter(p: Period): { start: string; end: string } {
-  if (p.mode === 'month') {
-    const m = p.month ?? 1
-    const start = `${p.year}-${String(m).padStart(2, '0')}-01`
-    const lastDay = new Date(p.year, m, 0).getDate()
-    const end = `${p.year}-${String(m).padStart(2, '0')}-${lastDay}`
-    return { start, end }
-  }
-  if (p.mode === 'quarter') {
-    const q = p.quarter ?? 1
-    const startMonth = (q - 1) * 3 + 1
-    const endMonth = q * 3
-    const lastDay = new Date(p.year, endMonth, 0).getDate()
-    return {
-      start: `${p.year}-${String(startMonth).padStart(2, '0')}-01`,
-      end: `${p.year}-${String(endMonth).padStart(2, '0')}-${lastDay}`,
-    }
-  }
-  return { start: `${p.year}-01-01`, end: `${p.year}-12-31` }
-}
-
 function formatCurrency(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`
   return `$${n.toLocaleString()}`
+}
+
+/** Filter raw rows for the selected period, decode HTML, exclude non-expenses, sum by category */
+function filterAndAggregate(rawData: RawRow[], period: Period): ExpenseItem[] {
+  const sums = new Map<string, number>()
+
+  for (const row of rawData) {
+    const date = new Date(row['Reporting Date'] * 1000)
+    const rowYear = date.getFullYear()
+    const rowMonth = date.getMonth() + 1 // 1-based
+
+    let matches = false
+    if (period.mode === 'month') {
+      matches = rowYear === period.year && rowMonth === (period.month ?? 1)
+    } else if (period.mode === 'quarter') {
+      const q = period.quarter ?? 1
+      const startMonth = (q - 1) * 3 + 1
+      const endMonth = q * 3
+      matches = rowYear === period.year && rowMonth >= startMonth && rowMonth <= endMonth
+    } else {
+      matches = rowYear === period.year
+    }
+
+    if (!matches) continue
+
+    const rawCategory = String(row['DR_ACC_L1.5'] ?? '')
+    const category = decodeHtml(rawCategory)
+    if (EXCLUDED_CATEGORIES.has(category.toLowerCase())) continue
+
+    const amount = Math.abs(Number(row['Amount'] ?? 0))
+    sums.set(category, (sums.get(category) ?? 0) + amount)
+  }
+
+  return Array.from(sums.entries())
+    .map(([category, amount]) => ({ category, amount }))
+    .filter(item => item.amount > 0)
+    .sort((a, b) => b.amount - a.amount)
 }
 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────
@@ -214,60 +257,57 @@ function PeriodPicker({ period, onChange }: PeriodPickerProps) {
 export default function App() {
   const [period, setPeriod] = useState<Period>({
     mode: 'quarter',
-    year: 2025,
+    year: CURRENT_YEAR,
     quarter: 1,
   })
+  const [rawData, setRawData] = useState<RawRow[]>([])
   const [expenses, setExpenses] = useState<ExpenseItem[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [usingMock, setUsingMock] = useState(false)
+  const hasFetched = useRef(false)
 
-  const fetchData = useCallback(async (p: Period) => {
-    setLoading(true)
-    setError(null)
-    setUsingMock(false)
+  // Fetch ALL data once on mount (no date filter — filter client-side)
+  useEffect(() => {
+    if (hasFetched.current) return
+    hasFetched.current = true
 
-    try {
-      const tables = await callMcpTool('list_finance_tables', {}) as Array<{ id: number; name: string }>
-      const financials = tables.find(t => /^financials$/i.test(t.name)) ?? tables[0]
-      const tableId = String(financials.id)
+    const fetchAll = async () => {
+      setLoading(true)
+      setError(null)
+      setUsingMock(false)
 
-      const { start, end } = periodToDateFilter(p)
+      try {
+        const data = await callMcpTool('aggregate_table_data', {
+          table_id: '16528',
+          dimensions: ['Reporting Date', 'DR_ACC_L1.5'],
+          metrics: [{ field: 'Amount', agg: 'SUM' }],
+          filters: [
+            { name: 'Scenario', values: ['Actuals'], is_excluded: false },
+            { name: 'DR_ACC_L0', values: ['P&L'], is_excluded: false },
+          ],
+        }) as RawRow[]
 
-      const data = await callMcpTool('aggregate_table_data', {
-        table_id: tableId,
-        dimensions: ['DR_ACC_L1.5'],
-        metrics: [{ field: 'Amount', agg: 'SUM' }],
-        filters: [
-          { name: 'Scenario', values: ['Actuals'], is_excluded: false },
-          { name: 'DR_ACC_L0', values: ['P&L'], is_excluded: false },
-          { name: 'Reporting Date', values: [start, end], is_excluded: false },
-        ],
-      }) as Array<Record<string, unknown>>
-
-      const items: ExpenseItem[] = data
-        .map(row => ({
-          category: String(row['DR_ACC_L1.5'] ?? 'Unknown'),
-          amount: Math.abs(Number(row['Amount'] ?? 0)),
-        }))
-        .filter(item => item.amount > 0)
-        .sort((a, b) => b.amount - a.amount)
-
-      if (items.length === 0) throw new Error('No data returned')
-      setExpenses(items)
-    } catch (err) {
-      console.warn('API error, using mock data:', err)
-      setError(err instanceof Error ? err.message : 'Failed to load data')
-      setExpenses(MOCK_DATA)
-      setUsingMock(true)
-    } finally {
-      setLoading(false)
+        if (!Array.isArray(data) || data.length === 0) throw new Error('No data returned')
+        setRawData(data)
+      } catch (err) {
+        console.warn('API error, using mock data:', err)
+        setError(err instanceof Error ? err.message : 'Failed to load data')
+        setRawData(MOCK_RAW)
+        setUsingMock(true)
+      } finally {
+        setLoading(false)
+      }
     }
+
+    fetchAll()
   }, [])
 
+  // Filter & aggregate client-side whenever rawData or period changes
   useEffect(() => {
-    fetchData(period)
-  }, [period, fetchData])
+    if (rawData.length === 0) return
+    setExpenses(filterAndAggregate(rawData, period))
+  }, [rawData, period])
 
   const total = expenses.reduce((s, e) => s + e.amount, 0)
 
@@ -307,17 +347,24 @@ export default function App() {
             ) : (
               <p className="summary-amount">{formatCurrency(total)}</p>
             )}
-            {error && !usingMock && (
-              <p className="error-msg">{error}</p>
+            {error && usingMock && (
+              <p className="error-msg">Using demo data</p>
             )}
+            <div className="summary-categories">
+              <p className="summary-cat-count">{expenses.length} categories</p>
+            </div>
           </div>
 
           <div className="chart-card">
-            <h2 className="chart-title">Expenses by Category</h2>
+            <h2 className="chart-title">Expenses by Category · {periodLabel(period)}</h2>
             {loading ? (
               <div className="chart-loading">
                 <div className="spinner large" />
                 <p>Loading data…</p>
+              </div>
+            ) : expenses.length === 0 ? (
+              <div className="chart-loading">
+                <p className="no-data">No expense data for this period</p>
               </div>
             ) : (
               <div className="chart-wrapper">
