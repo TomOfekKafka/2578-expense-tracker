@@ -7,7 +7,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts'
-import { callMcpTool } from './api'
+import { callMcpTool, credentialsReady } from './api'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -278,6 +278,7 @@ export default function App() {
       setUsingMock(false)
 
       try {
+        await credentialsReady
         const data = await callMcpTool('aggregate_table_data', {
           table_id: '16528',
           dimensions: ['Reporting Date', 'DR_ACC_L1.5'],
