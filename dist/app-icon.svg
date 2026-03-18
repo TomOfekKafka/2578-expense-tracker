@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="30" fill="#4646CE" opacity="0.12"/>
+
+  <!-- Donut chart segments -->
+  <!-- Full donut base ring -->
+  <circle cx="32" cy="32" r="18" fill="none" stroke="#e2e8f0" stroke-width="8"/>
+
+  <!-- Segment 1: large ~40% (COGS) -->
+  <circle cx="32" cy="32" r="18" fill="none" stroke="#4646CE" stroke-width="8"
+    stroke-dasharray="45.2 68.1"
+    stroke-dashoffset="0"
+    transform="rotate(-90 32 32)"/>
+
+  <!-- Segment 2: ~25% (R&D) -->
+  <circle cx="32" cy="32" r="18" fill="none" stroke="#3b82f6" stroke-width="8"
+    stroke-dasharray="28.3 85.0"
+    stroke-dashoffset="-45.2"
+    transform="rotate(-90 32 32)"/>
+
+  <!-- Segment 3: ~20% (S&M) -->
+  <circle cx="32" cy="32" r="18" fill="none" stroke="#f97316" stroke-width="8"
+    stroke-dasharray="22.6 90.7"
+    stroke-dashoffset="-73.5"
+    transform="rotate(-90 32 32)"/>
+
+  <!-- Segment 4: ~15% (G&A) -->
+  <circle cx="32" cy="32" r="18" fill="none" stroke="#10b981" stroke-width="8"
+    stroke-dasharray="17.0 96.3"
+    stroke-dashoffset="-96.1"
+    transform="rotate(-90 32 32)"/>
+
+  <!-- Center dollar sign dot -->
+  <circle cx="32" cy="32" r="7" fill="#4646CE" opacity="0.15"/>
+  <!-- Dollar sign vertical bar -->
+  <rect x="31" y="26" width="2" height="12" rx="1" fill="#4646CE"/>
+  <!-- Dollar sign top curve -->
+  <path d="M29 29.5 Q29 27.5 32 27.5 Q35 27.5 35 29.5 Q35 31.5 32 31.5 Q29 31.5 29 33.5 Q29 35.5 32 35.5 Q35 35.5 35 33.5" fill="none" stroke="#4646CE" stroke-width="1.5" stroke-linecap="round"/>
+</svg>
